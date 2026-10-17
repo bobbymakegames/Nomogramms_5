@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Интерактивная номограмма</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .instructions {
+            margin-bottom: 20px;
+            text-align: center;
+            color: #333;
+            background: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            max-width: 900px;
+            line-height: 1.5;
+        }
+
+        #workspace {
+            position: relative;
+            display: inline-block;
+            user-select: none; 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            background: white;
+            line-height: 0; 
+            max-width: 95vw; 
+        }
+
+        #graph-image {
+            max-width: 100%;
+            height: auto;
+            display: block;
+            user-drag: none; 
+            -webkit-user-drag: none; 
+        }
+
+        /* --- Общие стили линеек --- */
+        .ruler {
+            position: absolute;
+            z-index: 10;
+            pointer-events: none; 
+            touch-action: none;   
+        }
+
+        /* Вертикальная линейка 1 (h_в/D) - Красная */
+        #v-ruler-1 {
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background-color: rgba(220, 20, 20, 0.8);
+            left: 30%; 
+            transform: translateX(-50%);
+        }
+
+        /* Вертикальная линейка 2 (τ_н) - Зеленая */
+        #v-ruler-2 {
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background-color: rgba(0, 128, 0, 0.8);
+            left: 70%; 
+            transform: translateX(-50%);
+        }
+
+        /* Горизонтальная линейка - Синяя */
+        #h-ruler {
+            left: 0;
+            right: 0;
+            height: 2px;
+            background-color: rgba(0, 0, 255, 0.6);
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        /* --- Невидимые зоны захвата (Handles) --- */
+        .handle-v {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: -15px;   
+            right: -15px;  
+            pointer-events: auto; 
+            cursor: ew-resize;
+            z-index: 20;
+        }
+
+        #h-handle {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: -15px;    
+            bottom: -15px; 
+            pointer-events: auto;
+            cursor: ns-resize;
+            z-index: 20;
+        }
+
+        /* --- Стили меток --- */
+        .label {
+            position: absolute;
+            background-color: rgba(255, 255, 255, 0.95);
+            border-radius: 4px;
+            padding: 6px 10px;
+            font-size: 15px;
+            font-weight: bold;
+            font-family: monospace;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            white-space: nowrap;
+            pointer-events: none; 
+            line-height: 1.2;
+            z-index: 30;
+        }
+
+        #v-label-1 {
+            top: 10px;
+            left: 15px;
+            color: #b71c1c;
+            border: 1px solid #ef9a9a;
+        }
+
+        #v-label-2 {
+            top: 50px; 
+            left: 15px;
+            color: #1b5e20;
+            border: 1px solid #a5d6a7;
+        }
+
+        /* Подсветка при перетаскивании */
+        .active {
+            box-shadow: 0 0 10px rgba(0,0,0,0.8);
+            z-index: 25;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="instructions">
+        <h3>Интерактивные измерения по номограмме</h3>
+        <p>
+            🟥 <b>Красная линия</b>: показывает значение <b>h_в/D</b> (от 0 до 4) с точностью до сотых (2 знака).<br>
+            🟩 <b>Зеленая линия</b>: показывает значение <b>τ_н</b> (от 0 до 0.40) с точностью до 5 знаков после запятой.<br>
+            🟦 <b>Синяя линия</b>: вспомогательная горизонтальная линия (без значений).
+        </p>
+    </div>
+
+    <div id="workspace">
+        <img id="graph-image" src="nomogram.jpg" alt="Номограмма" draggable="false">
+        
+        <!-- Вертикальная линейка 1 (h_в/D) -->
+        <div id="v-ruler-1" class="ruler">
+            <div class="handle-v" id="v-handle-1"></div>
+            <div id="v-label-1" class="label">h_в/D: 0.00</div>
+        </div>
+
+        <!-- Вертикальная линейка 2 (τ_н) -->
+        <div id="v-ruler-2" class="ruler">
+            <div class="handle-v" id="v-handle-2"></div>
+            <!-- Изменили начальное значение на 0.00000 -->
+            <div id="v-label-2" class="label">τ_н: 0.00000</div>
+        </div>
+
+        <!-- Горизонтальная линейка -->
+        <div id="h-ruler" class="ruler">
+            <div id="h-handle"></div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // НАСТРОЙКИ КАЛИБРОВКИ (в процентах от размера картинки)
+        // ==========================================
+        const X_START_RATIO = 0.010; 
+        const X_END_RATIO = 0.982;   
+        
+        const Y_START_RATIO = 0.01;
+        const Y_END_RATIO = 0.915;
+
+        const MAX_H = 4.0;
+        const MAX_TAU = 0.040;
+        // ==========================================
+
+        const workspace = document.getElementById('workspace');
+        const img = document.getElementById('graph-image');
+        
+        const vRuler1 = document.getElementById('v-ruler-1');
+        const vRuler2 = document.getElementById('v-ruler-2');
+        const hRuler = document.getElementById('h-ruler');
+        
+        const vLabel1 = document.getElementById('v-label-1');
+        const vLabel2 = document.getElementById('v-label-2');
+
+        let isDraggingV1 = false;
+        let isDraggingV2 = false;
+        let isDraggingH = false;
+
+        function initRulers() {
+            vRuler1.style.left = '30%';
+            vRuler2.style.left = '70%';
+            hRuler.style.top = '50%';
+            updateValues();
+        }
+
+        function updateValues() {
+            if (!img.complete) return;
+
+            const wsRect = workspace.getBoundingClientRect();
+
+            // --- Расчет значений по горизонтали (Вертикальные линейки) ---
+            const graphStartXPixels = wsRect.width * X_START_RATIO;
+            const graphEndXPixels = wsRect.width * X_END_RATIO;
+            const graphWidthPixels = graphEndXPixels - graphStartXPixels;
+
+            // Линейка 1 (h_в/D)
+            const currentXPixels1 = vRuler1.getBoundingClientRect().left - wsRect.left;
+            let hVal = ((currentXPixels1 - graphStartXPixels) / graphWidthPixels) * MAX_H;
+            
+            // Линейка 2 (τ_н)
+            const currentXPixels2 = vRuler2.getBoundingClientRect().left - wsRect.left;
+            let tauVal = ((currentXPixels2 - graphStartXPixels) / graphWidthPixels) * MAX_TAU;
+
+            // Вывод с нужной точностью
+            vLabel1.textContent = `h_в/D: ${hVal.toFixed(2)}`;
+            
+            // ИЗМЕНЕНИЕ ЗДЕСЬ: toFixed(5) вместо toFixed(3)
+            vLabel2.textContent = `τ_н: ${tauVal.toFixed(5)}`;
+        }
+
+        // --- Обработчики событий ---
+
+        document.getElementById('v-handle-1').addEventListener('pointerdown', (e) => {
+            isDraggingV1 = true;
+            vRuler1.classList.add('active');
+            e.target.setPointerCapture(e.pointerId); 
+            e.preventDefault(); 
+        });
+
+        document.getElementById('v-handle-2').addEventListener('pointerdown', (e) => {
+            isDraggingV2 = true;
+            vRuler2.classList.add('active');
+            e.target.setPointerCapture(e.pointerId);
+            e.preventDefault();
+        });
+
+        document.getElementById('h-handle').addEventListener('pointerdown', (e) => {
+            isDraggingH = true;
+            hRuler.classList.add('active');
+            e.target.setPointerCapture(e.pointerId);
+            e.preventDefault();
+        });
+
+        document.addEventListener('pointerup', () => {
+            isDraggingV1 = false;
+            isDraggingV2 = false;
+            isDraggingH = false;
+            vRuler1.classList.remove('active');
+            vRuler2.classList.remove('active');
+            hRuler.classList.remove('active');
+        });
+
+        document.addEventListener('pointermove', (e) => {
+            if (!isDraggingV1 && !isDraggingV2 && !isDraggingH) return;
+
+            const wsRect = workspace.getBoundingClientRect();
+            
+            if (isDraggingV1) {
+                let x = e.clientX - wsRect.left;
+                let percentX = (x / wsRect.width) * 100;
+                percentX = Math.max(0, Math.min(100, percentX));
+                vRuler1.style.left = `${percentX}%`;
+            }
+
+            if (isDraggingV2) {
+                let x = e.clientX - wsRect.left;
+                let percentX = (x / wsRect.width) * 100;
+                percentX = Math.max(0, Math.min(100, percentX));
+                vRuler2.style.left = `${percentX}%`;
+            }
+
+            if (isDraggingH) {
+                let y = e.clientY - wsRect.top;
+                let percentY = (y / wsRect.height) * 100;
+                percentY = Math.max(0, Math.min(100, percentY));
+                hRuler.style.top = `${percentY}%`;
+            }
+
+            updateValues();
+        });
+
+        window.addEventListener('resize', updateValues);
+
+        img.addEventListener('load', initRulers);
+        if (img.complete) {
+            initRulers();
+        }
+    </script>
+</body>
+</html>
